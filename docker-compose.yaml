@@ -1,0 +1,188 @@
+services:
+
+  # DATABASES
+  mongo-db:
+    image: mongo
+    container_name: mongo-db
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongo
+      MONGO_INITDB_ROOT_PASSWORD: mongo
+    networks:
+      - airline-network
+
+  postgres-db:
+      image: postgres
+      container_name: postgres-db
+      ports:
+        - "5432:5432"
+      environment:
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+      volumes:
+        - ./init-db:/docker-entrypoint-initdb.d
+      networks:
+        - airline-network
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: rabbitmq
+      RABBITMQ_DEFAULT_PASS: rabbitmq
+    networks:
+      - airline-network
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=redis
+    command: ["redis-server", "--requirepass", "redis"]
+    networks:
+      - airline-network
+
+
+  # MICROSERVICES
+  ms-auth:
+    container_name: ms-auth
+    build:
+      context: ./ms-auth/auth
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - mongo-db
+      - rabbitmq
+      - redis
+    networks:
+      - airline-network
+  
+  ms-cliente:
+    container_name: ms-cliente
+    build:
+      context: ./ms-cliente/cliente
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres-db
+      - rabbitmq
+      - redis
+    networks:
+      - airline-network
+  
+  ms-funcionario:
+    container_name: ms-funcionario
+    build:
+      context: ./ms-funcionario/funcionario
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres-db
+      - rabbitmq
+      - redis
+    networks:
+      - airline-network
+
+  ms-reserva:
+    container_name: ms-reserva
+    build:
+      context: ./ms-reserva/reserva
+      dockerfile: Dockerfile
+    ports:
+      - "8083:8083"
+    depends_on:
+      - postgres-db
+      - rabbitmq
+      - redis
+    networks:
+      - airline-network
+
+  ms-voos:
+    container_name: ms-voos
+    build:
+      context: ./ms-voos/voos
+      dockerfile: Dockerfile
+    ports:
+      - "8084:8084"
+    depends_on:
+      - postgres-db
+      - rabbitmq
+      - redis
+    networks:
+      - airline-network
+
+
+  # SAGA ORCHESTRATOR
+  saga:
+    container_name: saga-orchestrator
+    build:
+      context: ./saga/saga
+      dockerfile: Dockerfile
+    ports:
+      - "8085:8085"
+    depends_on:
+      - postgres-db
+      - rabbitmq
+    networks:
+      - airline-network
+
+
+  # API GATEWAY
+  api-gateway:
+    container_name: api-gateway
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "3015:3015"
+    depends_on:
+      - ms-auth
+      - ms-cliente
+      - ms-funcionario
+      - ms-reserva
+      - ms-voos
+      - saga
+    networks:
+      - airline-network
+    environment:
+      PORT: 3015
+      MS_AUTH_URL: http://ms-auth:8080
+      MS_CLIENTE_URL: http://ms-cliente:8081
+      MS_FUNCIONARIO_URL: http://ms-funcionario:8082
+      MS_RESERVA_URL: http://ms-reserva:8083
+      MS_VOOS_URL: http://ms-voos:8084
+      MS_FUNCIONARIO_SAGA_URL: http://saga:8085
+      MS_VOOS_SAGA_URL: http://saga:8085
+      MS_CLIENTE_SAGA_URL: http://saga:8085
+      MS_RESERVA_SAGA_URL: http://saga:8085
+  
+
+  # ANGULAR FRONTEND
+  angular-frontend:
+    container_name: angular-frontend
+    build:
+      context: ./angular-frontend
+      dockerfile: Dockerfile
+    ports:
+      - "4200:4200"
+    volumes:
+      - ./angular-frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api-gateway
+    networks:
+      - airline-network
+
+
+networks:
+  airline-network:
+    driver: bridge
